@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Get crawl data from Screaming Frog and produce either the SEO or SEO/GEO
-FirstPage Onsite Checklist deliverable for items 17.1-20.2.
+FirstPage Onsite Checklist deliverable for items 13.1-13.2 and 17.1-20.2.
 
 Two phases, independently runnable:
   crawl  -> Screaming Frog CLI writes CSV exports to a folder
@@ -18,6 +18,7 @@ import datetime
 import glob
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,11 +43,26 @@ KB = 1024               # SF's kB convention is unconfirmed (1000 vs 1024); 100k
                         # images within ~4.8KB of the cutoff.
 
 EXPORT_TABS = [
+    "Canonicals:All", "Canonicals:Canonicalised", "Canonicals:Missing",
+    "Canonicals:Multiple", "Canonicals:Multiple Conflicting",
+    "Canonicals:Non-Indexable Canonical", "Canonicals:Invalid Attribute In Annotation",
+    "Canonicals:Contains Fragment URL", "Canonicals:Outside <head>",
     "Page Titles:All", "Page Titles:Missing", "Page Titles:Duplicate", "Page Titles:Multiple",
     "Meta Description:All", "Meta Description:Missing", "Meta Description:Duplicate",
     "H1:All", "H1:Missing", "H1:Duplicate", "H1:Multiple",
     "Images:All",
 ]
+
+CANONICAL_ISSUES = (
+    ("Canonicalised", ("canonicals", "canonicalised"), ()),
+    ("Missing", ("canonicals", "missing"), ()),
+    ("Multiple", ("canonicals", "multiple"), ("conflicting",)),
+    ("Multiple Conflicting", ("canonicals", "multiple", "conflicting"), ()),
+    ("Non-Indexable Canonical", ("canonicals", "nonindexable", "canonical"), ()),
+    ("Invalid Attribute In Annotation", ("canonicals", "invalid", "attribute"), ()),
+    ("Contains Fragment URL", ("canonicals", "contains", "fragment"), ()),
+    ("Outside <head>", ("canonicals", "outside", "head"), ()),
+)
 BULK_EXPORTS = [
     "Images:Images Missing Alt Attribute & Text Inlinks",
     "Images:All Image Inlinks",
@@ -150,6 +166,26 @@ def group_by(rows, *keys):
     return sorted(rows, key=lambda r: (-counts[val(r)], val(r), col(r, "Address") or ""))
 
 
+def canonical_elements(row):
+    """Return numbered HTML canonical link elements in Screaming Frog export order."""
+    elements = []
+    for heading, value in row.items():
+        match = re.fullmatch(r"Canonical Link Element(?: (\d+))?", heading or "")
+        if match and value not in (None, ""):
+            elements.append((int(match.group(1) or 1), str(value).strip()))
+    return [value for _, value in sorted(elements)]
+
+
+def canonical_record(row, issue):
+    elements = canonical_elements(row)
+    return {
+        "Address": col(row, "Address"),
+        "Issue": issue,
+        "Canonical Link Element": elements[0] if elements else None,
+        "Additional Canonical Link Elements": "\n".join(elements[1:]) or None,
+    }
+
+
 # --------------------------------------------------------------------------- buckets
 
 def build_buckets(d):
@@ -199,7 +235,24 @@ def build_buckets(d):
                            "Destination": col(r, "Destination"), "Size (Bytes)": int(size)})
     i_over.sort(key=lambda x: -x["Size (Bytes)"])
 
+    canonical_groups = {}
+    canonical_paths = {}
+    for issue, must, exclude in CANONICAL_ISSUES:
+        path = find_csv(d, *must, exclude=exclude)
+        canonical_paths[issue] = path
+        canonical_groups[issue] = [canonical_record(row, issue) for row in load(path)]
+    canonical_all_path = find_csv(d, "canonicals", "all")
+    canonical_all = load(canonical_all_path)
+    canonical_missing_reports = [
+        issue for issue, path in canonical_paths.items() if not path
+    ]
+    if not canonical_all_path:
+        canonical_missing_reports.append("All")
+    elif not canonical_all:
+        canonical_missing_reports.append("All (no data)")
+
     buckets = {
+        "13": canonical_groups,
         "17.1": load(find_csv(d, "page_titles", "missing")),
         "17.2": group_by(load(find_csv(d, "page_titles", "duplicate")), "Title 1"),
         "17.3": sorted([r for r in indexable(t_all) if num(col(r, "Title 1 Pixel Width")) > TITLE_PX],
@@ -225,6 +278,8 @@ def build_buckets(d):
     # images_sizes_known says whether All Image Inlinks supplied any byte sizes at all. If
     # images exist but that export has no sizes, a zero oversize result is unknown, not clean.
     meta = {
+        "canonicals_available": bool(canonical_all) and all(canonical_paths.values()),
+        "canonical_missing_reports": canonical_missing_reports,
         "images_crawled": bool(i_all or inlinks or alt_missing),
         "images_sizes_known": sizes_seen,
     }
@@ -278,6 +333,12 @@ TABS = {
              "machine_cols": 3, "preserve_cols": (), "key_cols": (1, 2)},
 }
 
+CANONICAL_TAB = "13. Canonical tag"
+CANONICAL_CHECK_ITEMS = ("13.1", "13.2")
+CANONICAL_MANUAL_ITEMS = ("13.3", "13.4", "13.5", "13.6", "13.7")
+MANAGED_CHECK_ITEMS = set(TABS) | set(CANONICAL_CHECK_ITEMS) | set(CANONICAL_MANUAL_ITEMS)
+CHANGE_ORDER = (*CANONICAL_CHECK_ITEMS, *TABS)
+
 PROFILES = {
     "seo": {
         "template": "Onsite Checklist - TEMPLATE - 2026.xlsx",
@@ -312,7 +373,7 @@ def find_check_rows(ws):
             key = f"{round(float(b), 2):.1f}"     # col B carries float noise: 17.400000000000006
         except (TypeError, ValueError):
             continue
-        if key in TABS and key not in out:
+        if key in MANAGED_CHECK_ITEMS and key not in out:
             out[key] = r
     return out
 
@@ -367,7 +428,7 @@ def detect_profile(workbook_path):
         sys.exit(f"Could not open base workbook as XLSX: {exc}")
     sheets = set(wb.sheetnames)
     wb.close()
-    required = {CHECK_TAB, *(spec["tab"] for spec in TABS.values())}
+    required = {CHECK_TAB, CANONICAL_TAB, *(spec["tab"] for spec in TABS.values())}
     missing = sorted(required - sheets)
     if missing:
         sys.exit(f"Workbook is missing required sheets: {missing}")
@@ -456,19 +517,159 @@ def resolve_blank_template(local_path, template_url, checklist_type, output_dir)
     return download_template(source, checklist_type, output_dir, expected_sha256=expected)
 
 
+def ensure_canonical_schema(sheet):
+    """Add the additional-elements column to legacy templates and previous workbooks."""
+    additional_header = "Additional Canonical Link Element(s)"
+    if sheet.cell(3, 4).value == additional_header:
+        return
+    if sheet.cell(3, 4).value != "Instructions":
+        sys.exit("Canonical tab has an unsupported column layout; expected Instructions in D3")
+
+    image_positions = [(image, _image_position(image)) for image in getattr(sheet, "_images", [])]
+    old_instruction_width = sheet.column_dimensions["D"].width
+    old_screenshot_width = sheet.column_dimensions["E"].width
+    had_legacy_heading_merge = "B1:D2" in {str(rng) for rng in sheet.merged_cells.ranges}
+    if had_legacy_heading_merge:
+        sheet.unmerge_cells("B1:D2")
+    sheet.insert_cols(4, 1)
+
+    if had_legacy_heading_merge:
+        sheet.merge_cells("B1:E2")
+
+    sheet.cell(3, 4)._style = copy.copy(sheet.cell(3, 3)._style)
+    sheet.cell(3, 4).value = additional_header
+    sheet.cell(DATA_ROW, 4)._style = copy.copy(sheet.cell(DATA_ROW, 3)._style)
+    sheet.column_dimensions["D"].width = sheet.column_dimensions["C"].width
+    sheet.column_dimensions["E"].width = old_instruction_width
+    sheet.column_dimensions["F"].width = old_screenshot_width
+
+    for image, position in image_positions:
+        if position and position[1] >= 4:
+            image.anchor = f"{get_column_letter(position[1] + 1)}{position[0]}"
+
+
+def canonical_values(record):
+    return [
+        record.get("Address"),
+        record.get("Issue"),
+        record.get("Canonical Link Element"),
+        record.get("Additional Canonical Link Elements"),
+    ]
+
+
+def build_canonical_sheet(wb, groups, meta, check_rows, mode):
+    sheet = wb[CANONICAL_TAB]
+    ensure_canonical_schema(sheet)
+    max_col = 6
+    style = [copy.copy(sheet.cell(DATA_ROW, c)._style) for c in range(1, max_col + 1)]
+
+    previous_keys = []
+    previous_missing_keys = []
+    row_images = collections.defaultdict(list)
+    data_images = []
+    for image in list(getattr(sheet, "_images", [])):
+        position = _image_position(image)
+        if position and position[0] >= DATA_ROW:
+            row_images[position[0]].append((position[1], image))
+            data_images.append(image)
+
+    carry_forward = collections.defaultdict(collections.deque)
+    for row in range(DATA_ROW, sheet.max_row + 1):
+        machine = [sheet.cell(row, c).value for c in range(1, 5)]
+        if not any(value not in (None, "") for value in machine):
+            continue
+        issue_key = _issue_key(machine, (1, 2, 3, 4))
+        previous_keys.append(issue_key)
+        if _norm_key(machine[1]) == "Missing":
+            previous_missing_keys.append(issue_key)
+        preserved = tuple(_capture_cell(sheet.cell(row, c)) for c in (5, 6))
+        carry_forward[issue_key].append((preserved, row_images.get(row, [])))
+
+    if data_images:
+        sheet._images = [image for image in sheet._images if image not in data_images]
+    for row in sheet.iter_rows(min_row=DATA_ROW, max_row=sheet.max_row, max_col=max_col):
+        for cell in row:
+            if not isinstance(cell, MergedCell):
+                cell.value = None
+                cell.hyperlink = None
+                cell.comment = None
+
+    current_keys = []
+    current_missing_keys = []
+    output_row = DATA_ROW
+    wrote_group = False
+    for issue, _, _ in CANONICAL_ISSUES:
+        records = groups.get(issue, [])
+        if not records:
+            continue
+        if wrote_group:
+            for c in range(1, max_col + 1):
+                sheet.cell(output_row, c)._style = copy.copy(style[c - 1])
+            output_row += 1
+        wrote_group = True
+        for record in records:
+            values = canonical_values(record)
+            issue_key = _issue_key(values, (1, 2, 3, 4))
+            current_keys.append(issue_key)
+            if issue == "Missing":
+                current_missing_keys.append(issue_key)
+            for c, value in enumerate(values, start=1):
+                cell = sheet.cell(output_row, c)
+                cell.value = value
+                cell._style = copy.copy(style[c - 1])
+            if mode == "review" and carry_forward[issue_key]:
+                carried_cells, carried_images = carry_forward[issue_key].popleft()
+                for c, captured in zip((5, 6), carried_cells):
+                    cell = sheet.cell(output_row, c)
+                    _restore_cell(cell, captured)
+                    cell._style = copy.copy(style[c - 1])
+                for image_col, image in carried_images:
+                    image.anchor = f"{get_column_letter(image_col)}{output_row}"
+                    sheet.add_image(image)
+            output_row += 1
+
+    complete = meta.get("canonicals_available", False)
+    missing_count = len(current_missing_keys)
+    total_count = len(current_keys)
+    missing_mark = "✖" if missing_count else ("✔" if complete else "?")
+    issue_mark = "✖" if total_count else ("✔" if complete else "?")
+    wb[CHECK_TAB].cell(check_rows["13.1"], CHECK_COL).value = missing_mark
+    wb[CHECK_TAB].cell(check_rows["13.2"], CHECK_COL).value = issue_mark
+    if mode != "review":
+        for item in CANONICAL_MANUAL_ITEMS:
+            wb[CHECK_TAB].cell(check_rows[item], CHECK_COL).value = "N/A"
+    if total_count:
+        sheet.sheet_state = "visible"
+
+    results = [
+        ("13.1", "13. Canonical tag - Missing", missing_count, missing_mark),
+        ("13.2", "13. Canonical tag - Issues", total_count, issue_mark),
+    ]
+    changes = {}
+    if mode == "review":
+        changes = {
+            "13.1": _change_counts(previous_missing_keys, current_missing_keys),
+            "13.2": _change_counts(previous_keys, current_keys),
+        }
+    return results, changes
+
+
 def build(base_workbook, out_path, buckets, meta=None, mode="begin", blank_unverified=True):
     meta = meta or {}
     shutil.copy(base_workbook, out_path)
     wb = openpyxl.load_workbook(out_path)
 
     missing_tabs = [TABS[k]["tab"] for k in TABS if TABS[k]["tab"] not in wb.sheetnames]
+    if CANONICAL_TAB not in wb.sheetnames:
+        missing_tabs.insert(0, CANONICAL_TAB)
     if missing_tabs:
         sys.exit(f"Template is missing expected tabs: {missing_tabs}")
 
     ws = wb[CHECK_TAB]
     rows = find_check_rows(ws)
-    if len(rows) != len(TABS):
-        sys.exit(f"Could not locate all checklist rows; found {sorted(rows)}")
+    missing_check_rows = sorted(MANAGED_CHECK_ITEMS - set(rows))
+    if missing_check_rows:
+        sys.exit(f"Could not locate checklist rows: {missing_check_rows}")
 
     # The template ships '✔' pre-filled on every item. Left alone, the deliverable
     # would claim a clean pass on checks nobody ran.
@@ -477,8 +678,9 @@ def build(base_workbook, out_path, buckets, meta=None, mode="begin", blank_unver
             if ws.cell(r, CHECK_COL).value in ("✔", "✖", "?"):
                 ws.cell(r, CHECK_COL).value = None
 
-    results = []
-    changes = {}
+    results, changes = build_canonical_sheet(
+        wb, buckets.get("13", {}), meta, rows, mode,
+    )
     for key, spec in TABS.items():
         tab = spec["tab"]
         rowfn = spec["rowfn"]
@@ -574,7 +776,9 @@ def default_template(checklist_type):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Onsite checklist extraction (items 17.1-20.2)")
+    p = argparse.ArgumentParser(
+        description="Onsite checklist extraction (items 13.1-13.2 and 17.1-20.2)"
+    )
     p.add_argument("--url", help="Start URL to crawl in Spider mode")
     p.add_argument("--sitemap", help="Sitemap URL for route selection only. The local headless "
                                       "route cannot inject it into Crawl These Sitemaps; use a "
@@ -677,7 +881,7 @@ def main():
         print()
         print(f"{'ITEM':<8}{'NEW':>6}{'PERSIST':>10}{'RESOLVED':>10}")
         print("-" * 34)
-        for key in TABS:
+        for key in CHANGE_ORDER:
             delta = changes[key]
             print(f"{key:<8}{delta['new']:>6}{delta['persistent']:>10}{delta['resolved']:>10}")
     elif a.mode == "review":
@@ -687,6 +891,12 @@ def main():
     print()
     print("WROTE:", out_path)
     print(f"thresholds: title>{TITLE_PX}px  desc>{DESC_PX}px  image>{IMG_KB}kB")
+    if not meta.get("canonicals_available", False):
+        missing = ", ".join(meta.get("canonical_missing_reports", [])) or "All (no data)"
+        print()
+        print("!! WARNING: canonical exports are incomplete. Items 13.1/13.2 are marked '?' "
+              "unless a known issue already proves a failure.\n"
+              f"   Missing or unusable reports: {missing}")
     if not meta.get("images_crawled", True):
         print()
         print("!! WARNING: the crawl captured NO images. Items 20.1/20.2 are marked '?' "

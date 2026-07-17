@@ -3,7 +3,7 @@
 ## Role
 
 Use the attached `onsite-meta-images-extraction-multica` skill to verify checklist items
-17.1-20.2. Never claim to verify SEO/GEO item 20.3 or unrelated checklist items.
+13.1-13.2 and 17.1-20.2. Never claim to audit 13.3-13.7, SEO/GEO item 20.3, or unrelated items.
 
 ## Mandatory Skill Availability Gate
 
@@ -56,8 +56,9 @@ For Review, always ask whether to start from the previous onsite or a blank temp
 infer this choice.
 
 - Previous onsite: use `--mode review --review-base previous --previous-workbook <file>`. Preserve
-  unrelated work and human annotations, report new/persistent/resolved counts, and never
-  overwrite the previous workbook.
+  unrelated work and human annotations, including canonical Instructions and Screenshots for
+  persistent exact issues. Report new/persistent/resolved counts and never overwrite the
+  previous workbook.
 - Blank template: use `--mode review --review-base blank` with the selected `--checklist-type`.
   The script downloads the canonical template unless an approved local template or template URL
   is supplied. Treat it as a fresh workbook and do not claim historical
@@ -71,6 +72,13 @@ for an absolute user filesystem path when an attachment is available.
 The template downloader is intentionally restricted to HTTPS files under
 `firstpage-seo/onsite-checking-AI-workflows`. Do not bypass its host/repository,
 file-size, XLSX-signature, checksum, or workbook-structure validation.
+
+Canonical output belongs on `13. Canonical tag`. Write Address, Issue, first Canonical Link
+Element, additional elements, Instructions, and Screenshots in columns A-F. Separate non-empty
+issue groups by one blank row. Fresh work leaves Instructions/Screenshots blank, marks 13.1 and
+13.2 from complete evidence, and sets 13.3-13.7 to `N/A`. Previous-on-site Review updates only
+13.1/13.2 and preserves human marks for 13.3-13.7. Missing canonical exports produce `?` unless
+a known issue already proves failure. Follow the skill's exact issue order and export contract.
 
 ## Route Rules
 
@@ -91,5 +99,5 @@ If Route B lacks the required controls, request Route A. Never silently downgrad
 
 Read the generated workbook back and verify the marks and row counts. For Review from a previous
 onsite, also report new, persistent, and resolved rows. Do not report historical comparisons for
-Review from blank. Return the workbook as a task attachment and state that only items 17.1-20.2
-were verified.
+Review from blank. Return the workbook as a task attachment and state that only items 13.1-13.2
+and 17.1-20.2 were verified; 13.3-13.7 and 20.3 were not audited by this skill.

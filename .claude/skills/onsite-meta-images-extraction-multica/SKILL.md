@@ -1,17 +1,18 @@
 ---
 name: onsite-meta-images-extraction-multica
-description: Builds or refreshes the meta tags + images portion of either the FirstPage SEO or SEO/GEO Onsite Checklist. Supports Begin Onsite from a blank template and Review Onsite from either a previous completed workbook or a fresh blank template, using Screaming Frog saved crawls, MCP, local CLI, or existing exports. Covers only items 17.1-20.2.
+description: Builds or refreshes the canonical, meta tags, and images portion of either the FirstPage SEO or SEO/GEO Onsite Checklist. Supports Begin Onsite from a blank template and Review Onsite from either a previous completed workbook or a fresh blank template, using Screaming Frog saved crawls, MCP, local CLI, or existing exports. Covers items 13.1-13.2 and 17.1-20.2.
 ---
 
-# Meta Tags + Images Extraction (Onsite Checklist items 17.1-20.2)
+# Canonical + Meta Tags + Images Extraction
 
 Gets crawl data from Screaming Frog, applies FirstPage house thresholds, and writes a checklist
 `.xlsx` in the standard tab format with `✔`/`✖` marks on the `SEO Implementation Checklist`
 tab. In Multica, Screaming Frog MCP is an optional way to obtain the crawl exports; it does not
 replace the validated Python extraction and workbook logic.
 
-**Scope: items 17.1-20.2 only.** SEO/GEO item 20.3 is deliberately not audited. Everything else
-is out of scope and is left unverified or preserved from the previous onsite.
+**Scope: items 13.1-13.2 and 17.1-20.2 only.** Canonical items 13.3-13.7 and SEO/GEO item 20.3
+are deliberately not audited. Everything else is out of scope and is left unverified or
+preserved from the previous onsite.
 
 ---
 
@@ -44,15 +45,16 @@ declared family that disagrees with the workbook must hard-fail.
 
 **Begin Onsite.** Start from the selected blank SEO or SEO/GEO template. By default, download
 the canonical template for the selected family from this skill's approved public GitHub
-repository. Clear template ticks on unverified items, populate items 17.1-20.2, and leave
-SEO/GEO item 20.3 blank.
+repository. Clear template ticks on unverified items, populate items 13.1-13.2 and 17.1-20.2,
+set 13.3-13.7 to `N/A`, and leave SEO/GEO item 20.3 blank.
 
 **Review Onsite.** Ask for its starting point. When starting from the previous completed onsite,
-replace the factual rows in items 17.1-20.2 with current findings while preserving all unrelated
-sheets and checklist marks. Carry forward human-written `New Title`, `Revised Title`,
-`Instructions`, `Remarks`, and screenshot references for persistent issues. Remove resolved
-rows, add new rows, and unhide any managed tab that now has issues. Do not automatically hide a
-tab that becomes clean. Never overwrite the previous workbook.
+replace the factual rows in items 13 and 17.1-20.2 with current findings while preserving all
+unrelated sheets and checklist marks. Carry forward human-written `New Title`, `Revised Title`,
+`Instructions`, `Remarks`, and screenshot references for persistent issues. For canonical rows,
+persistence means the same Address, Issue, and canonical element values. Remove resolved rows,
+add new rows, and unhide any managed tab that now has issues. Update only 13.1, 13.2, and the
+17.1-20.2 marks; preserve human marks for 13.3-13.7. Never overwrite the previous workbook.
 
 When the user chooses Review from blank, download the selected family's canonical template,
 clear template ticks on unverified items, and build a fresh workbook. Do not claim historical
@@ -184,6 +186,15 @@ saved crawl instead.
 **Export tabs:**
 
 ```text
+Canonicals:All
+Canonicals:Canonicalised
+Canonicals:Missing
+Canonicals:Multiple
+Canonicals:Multiple Conflicting
+Canonicals:Non-Indexable Canonical
+Canonicals:Invalid Attribute In Annotation
+Canonicals:Contains Fragment URL
+Canonicals:Outside <head>
 Page Titles:All
 Page Titles:Missing
 Page Titles:Duplicate
@@ -213,7 +224,7 @@ After the MCP export finishes:
 
 1. Confirm `Page Titles:All` contains data rows. Header-only files mean the crawl failed.
 2. Confirm all required reports are present. Empty issue reports are valid, but missing reports
-   are not.
+   make the affected canonical marks unknown (`?`) unless a known issue already proves failure.
 3. Run the Python build step with `--exports-dir`.
 4. If the MCP server cannot provide the full contract, explain the limitation and use route A,
    C, or D instead. Never create a falsely clean workbook from incomplete MCP data.
@@ -330,7 +341,7 @@ Even with a config, this skill treats route C as website-only because it cannot 
 different sitemap per client. Use route A or capable MCP tools for a full sitemap audit.
 
 Validation, 2026-07-16: route A against the user's own 602-URL crawl reproduced a hand-built
-deliverable exactly on all 12 items (0/8/42/0, 32/4/68, 1/10/4, 30).
+meta/image deliverable exactly on all 12 items (0/8/42/0, 32/4/68, 1/10/4, 30).
 
 ---
 
@@ -404,16 +415,25 @@ rather than reporting it as passed.
 
 - Rows 1-2 metadata, **row 3 headers, data from row 4**. Never touch rows 1-3.
 - Column layouts vary per tab — the script's `TABS` map holds them.
+- Canonical groups are ordered: Canonicalised, Missing, Multiple, Multiple Conflicting,
+  Non-Indexable Canonical, Invalid Attribute In Annotation, Contains Fragment URL, and Outside
+  `<head>`. Put one blank row between non-empty groups and no blank row after the last group.
+- Canonical columns are Address, Issues, Canonical Link Element, Additional Canonical Link
+  Element(s), Instructions, and Screenshots (If have). Put element 1 in the first element column
+  and join elements 2+ with line breaks in the additional column.
 - 17.2 / 18.2 / 19.2 group duplicates together, biggest group first. 17.3 / 18.3 sort by pixel
   width descending.
 - Begin and blank-template Review leave `New Title`, `Revised Title`, `Instructions`, `Remarks`,
   and screenshot references blank. Review from previous carries them forward only for persistent
   issues.
-- `SEO Implementation Checklist` column D: `✔` = no issue, `✖` = issue found. Located by column B
-  value at runtime, not hardcoded, because rows shift as the template gains items.
-- Begin and blank-template Review blank template ticks, then mark only the 12 verified items.
-  Review from previous changes only those 12 marks and preserves every unrelated checklist
-  result.
+- `SEO Implementation Checklist` column D: `✔` = no issue, `✖` = issue found, `?` = incomplete
+  evidence. Located by column B at runtime, not hardcoded, because rows shift as templates change.
+- Any canonical issue marks 13.2 `✖`. A Missing issue marks 13.1 `✖`; otherwise 13.1 is `✔` only
+  with complete canonical exports. Incomplete exports leave 13.1/13.2 `?` unless a known issue
+  already proves that item failed.
+- Begin and blank-template Review blank template ticks, set 13.3-13.7 to `N/A`, then mark only
+  the managed items. Review from previous changes only managed marks and preserves every
+  unrelated checklist result, including human marks for 13.3-13.7.
 - SEO/GEO item 20.3 remains blank in Begin and blank-template Review, and stays unchanged in
   Review from previous.
 - A managed tab with current issues is always made visible. Clean tabs are not automatically
@@ -448,4 +468,5 @@ Give the per-item table (item, rows, mark), then flag:
 - Standouts worth naming — e.g. an 18.2 MB image, or a title at 1111 px against a 580 budget.
 - For Review from previous, the per-item new/persistent/resolved table. For Review from blank,
   state that historical comparison is unavailable.
-- That only items 17.1-20.2 were verified; SEO/GEO item 20.3 remains unverified.
+- That only items 13.1-13.2 and 17.1-20.2 were verified; 13.3-13.7 and SEO/GEO item 20.3 remain
+  unaudited by this skill.

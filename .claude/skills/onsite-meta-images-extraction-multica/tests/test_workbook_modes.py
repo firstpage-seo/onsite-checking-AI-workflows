@@ -22,7 +22,10 @@ SPEC.loader.exec_module(onsite)
 
 
 def empty_buckets():
-    return {key: [] for key in onsite.TABS}
+    return {
+        "13": {issue: [] for issue, _, _ in onsite.CANONICAL_ISSUES},
+        **{key: [] for key in onsite.TABS},
+    }
 
 
 def checklist_row(ws, item):
@@ -41,13 +44,24 @@ class WorkbookModesTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.seo = onsite.default_template("seo")
         self.geo = onsite.default_template("seo_geo")
-        self.meta = {"images_crawled": True, "images_sizes_known": True}
+        self.meta = {
+            "canonicals_available": True,
+            "canonical_missing_reports": [],
+            "images_crawled": True,
+            "images_sizes_known": True,
+        }
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def path(self, name):
         return os.path.join(self.tmp.name, name)
+
+    def write_csv(self, directory, name, fieldnames, rows):
+        with open(os.path.join(directory, name), "w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
 
     def test_detects_both_template_profiles(self):
         self.assertEqual(onsite.detect_profile(self.seo), "seo")
@@ -108,6 +122,182 @@ class WorkbookModesTest(unittest.TestCase):
                 onsite.download_template(
                     onsite.PROFILES["seo"]["url"], "seo", self.tmp.name,
                 )
+
+    def test_extracts_all_canonical_groups_and_numbered_elements(self):
+        exports = self.path("canonical-exports")
+        os.makedirs(exports)
+        self.write_csv(
+            exports, "page_titles_all.csv",
+            ["Address", "Indexability", "Title 1 Pixel Width"],
+            [{"Address": "https://example.com/", "Indexability": "Indexable",
+              "Title 1 Pixel Width": "100"}],
+        )
+        canonical_fields = [
+            "Address", "Canonical Link Element 1", "Canonical Link Element 2",
+            "Canonical Link Element 3",
+        ]
+        self.write_csv(
+            exports, "canonicals_all.csv", canonical_fields,
+            [{"Address": "https://example.com/", "Canonical Link Element 1": "https://example.com/"}],
+        )
+        rows_by_file = {
+            "canonicals_canonicalised.csv": [
+                {"Address": "https://example.com/a", "Canonical Link Element 1": "https://example.com/"},
+            ],
+            "canonicals_missing.csv": [
+                {"Address": "https://example.com/missing"},
+            ],
+            "canonicals_multiple.csv": [
+                {"Address": "https://example.com/multiple",
+                 "Canonical Link Element 1": "https://example.com/one",
+                 "Canonical Link Element 2": "https://example.com/two",
+                 "Canonical Link Element 3": "https://example.com/three"},
+            ],
+            "canonicals_multiple_conflicting.csv": [
+                {"Address": "https://example.com/conflicting",
+                 "Canonical Link Element 1": "https://example.com/one",
+                 "Canonical Link Element 2": "https://example.com/two"},
+            ],
+            "canonicals_nonindexable_canonical.csv": [
+                {"Address": "https://example.com/nonindexable",
+                 "Canonical Link Element 1": "https://example.com/noindex"},
+            ],
+            "canonicals_invalid_attribute_in_annotation.csv": [
+                {"Address": "https://example.com/invalid",
+                 "Canonical Link Element 1": "https://example.com/invalid"},
+            ],
+            "canonicals_contains_fragment_url.csv": [
+                {"Address": "https://example.com/fragment",
+                 "Canonical Link Element 1": "https://example.com/fragment#part"},
+            ],
+            "canonicals_outside_head.csv": [
+                {"Address": "https://example.com/outside",
+                 "Canonical Link Element 1": "https://example.com/outside"},
+            ],
+        }
+        for name, rows in rows_by_file.items():
+            self.write_csv(exports, name, canonical_fields, rows)
+
+        buckets, meta = onsite.build_buckets(exports)
+        self.assertTrue(meta["canonicals_available"])
+        self.assertEqual(
+            list(buckets["13"]), [issue for issue, _, _ in onsite.CANONICAL_ISSUES],
+        )
+        multiple = buckets["13"]["Multiple"][0]
+        self.assertEqual(multiple["Canonical Link Element"], "https://example.com/one")
+        self.assertEqual(
+            multiple["Additional Canonical Link Elements"],
+            "https://example.com/two\nhttps://example.com/three",
+        )
+
+    def test_canonical_sheet_groups_rows_and_marks_checklist(self):
+        buckets = empty_buckets()
+        buckets["13"]["Canonicalised"] = [
+            {"Address": "https://example.com/a", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+            {"Address": "https://example.com/b", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+        ]
+        buckets["13"]["Missing"] = [
+            {"Address": "https://example.com/missing", "Issue": "Missing",
+             "Canonical Link Element": None, "Additional Canonical Link Elements": None},
+        ]
+        buckets["13"]["Multiple"] = [
+            {"Address": "https://example.com/multiple", "Issue": "Multiple",
+             "Canonical Link Element": "https://example.com/one",
+             "Additional Canonical Link Elements": "https://example.com/two\nhttps://example.com/three"},
+        ]
+
+        output = self.path("canonical-groups.xlsx")
+        onsite.build(self.seo, output, buckets, self.meta, mode="begin")
+        wb = openpyxl.load_workbook(output)
+        sheet = wb[onsite.CANONICAL_TAB]
+        self.assertEqual(sheet.cell(3, 4).value, "Additional Canonical Link Element(s)")
+        self.assertEqual(sheet.cell(3, 5).value, "Instructions")
+        self.assertEqual(sheet.cell(3, 6).value, "Screenshots (If have)")
+        self.assertEqual(sheet.cell(4, 2).value, "Canonicalised")
+        self.assertEqual(sheet.cell(5, 2).value, "Canonicalised")
+        self.assertTrue(all(sheet.cell(6, c).value is None for c in range(1, 7)))
+        self.assertEqual(sheet.cell(7, 2).value, "Missing")
+        self.assertTrue(all(sheet.cell(8, c).value is None for c in range(1, 7)))
+        self.assertEqual(sheet.cell(9, 2).value, "Multiple")
+        self.assertEqual(
+            sheet.cell(9, 4).value,
+            "https://example.com/two\nhttps://example.com/three",
+        )
+        checklist = wb[onsite.CHECK_TAB]
+        self.assertEqual(checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "✖")
+        self.assertEqual(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "✖")
+        for item in onsite.CANONICAL_MANUAL_ITEMS:
+            self.assertEqual(
+                checklist.cell(checklist_row(checklist, item), onsite.CHECK_COL).value, "N/A"
+            )
+
+    def test_canonical_review_preserves_instructions_screenshots_and_manual_marks(self):
+        previous_buckets = empty_buckets()
+        previous_buckets["13"]["Canonicalised"] = [
+            {"Address": "https://example.com/persistent", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+            {"Address": "https://example.com/resolved", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+        ]
+        previous = self.path("canonical-previous.xlsx")
+        onsite.build(self.seo, previous, previous_buckets, self.meta, mode="begin")
+        wb = openpyxl.load_workbook(previous)
+        sheet = wb[onsite.CANONICAL_TAB]
+        sheet.cell(4, 5).value = "Keep instruction"
+        png = self.path("canonical-screenshot.png")
+        PillowImage.new("RGB", (4, 4), "blue").save(png)
+        sheet.add_image(SpreadsheetImage(png), "F4")
+        sheet.add_image(SpreadsheetImage(png), "F5")
+        checklist = wb[onsite.CHECK_TAB]
+        checklist.cell(checklist_row(checklist, "13.3"), onsite.CHECK_COL).value = "✔"
+        wb.save(previous)
+
+        current_buckets = empty_buckets()
+        current_buckets["13"]["Canonicalised"] = [
+            {"Address": "https://example.com/persistent", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+            {"Address": "https://example.com/new", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/", "Additional Canonical Link Elements": None},
+        ]
+        refreshed = self.path("canonical-refreshed.xlsx")
+        _, changes = onsite.build(
+            previous, refreshed, current_buckets, self.meta, mode="review",
+            blank_unverified=False,
+        )
+        wb = openpyxl.load_workbook(refreshed)
+        sheet = wb[onsite.CANONICAL_TAB]
+        self.assertEqual(sheet.cell(4, 5).value, "Keep instruction")
+        self.assertIsNone(sheet.cell(5, 5).value)
+        self.assertEqual(len(sheet._images), 1)
+        self.assertEqual(onsite._image_position(sheet._images[0]), (4, 6))
+        checklist = wb[onsite.CHECK_TAB]
+        self.assertEqual(checklist.cell(checklist_row(checklist, "13.3"), onsite.CHECK_COL).value, "✔")
+        self.assertEqual(changes["13.2"], {"new": 1, "persistent": 1, "resolved": 1})
+
+    def test_known_nonmissing_canonical_issue_fails_13_2_with_incomplete_evidence(self):
+        buckets = empty_buckets()
+        buckets["13"]["Canonicalised"] = [
+            {"Address": "https://example.com/old", "Issue": "Canonicalised",
+             "Canonical Link Element": "https://example.com/new",
+             "Additional Canonical Link Elements": None},
+        ]
+        output = self.path("canonical-incomplete.xlsx")
+        onsite.build(
+            self.seo, output, buckets,
+            {"canonicals_available": False, "images_crawled": True,
+             "images_sizes_known": True},
+            mode="begin",
+        )
+        wb = openpyxl.load_workbook(output)
+        checklist = wb[onsite.CHECK_TAB]
+        self.assertEqual(
+            checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "?"
+        )
+        self.assertEqual(
+            checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "✖"
+        )
 
     def test_review_from_blank_resolves_template_without_history(self):
         exports = self.path("exports")
@@ -257,6 +447,8 @@ class WorkbookModesTest(unittest.TestCase):
         )
         wb = openpyxl.load_workbook(output)
         checklist = wb[onsite.CHECK_TAB]
+        self.assertEqual(checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "?")
+        self.assertEqual(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "?")
         self.assertEqual(checklist.cell(checklist_row(checklist, "20.1"), onsite.CHECK_COL).value, "?")
         self.assertEqual(checklist.cell(checklist_row(checklist, "20.2"), onsite.CHECK_COL).value, "?")
 

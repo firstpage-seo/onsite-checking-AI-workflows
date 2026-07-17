@@ -17,7 +17,7 @@ task using each skill's frontmatter `description`; that metadata is the source o
 
 | Skill | Trigger |
 |---|---|
-| `onsite-meta-images-extraction-multica` | Meta tags and images portion of the SEO or SEO/GEO Onsite Checklist, items 17.1-20.2. |
+| `onsite-meta-images-extraction-multica` | Canonical, meta tags, and images portion of the SEO or SEO/GEO Onsite Checklist, items 13.1-13.2 and 17.1-20.2. |
 
 ## Adding skills
 
