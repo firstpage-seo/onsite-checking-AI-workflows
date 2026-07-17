@@ -1,0 +1,13 @@
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.firecrawl/
+
+**/_sf_exports/
+*.dbseospider
+*.seospider
+
+Onsite Checklist - *.xlsx
+SEO_GEO Onsite Checklist - *.xlsx
+!.claude/skills/**/assets/templates/*.xlsx
