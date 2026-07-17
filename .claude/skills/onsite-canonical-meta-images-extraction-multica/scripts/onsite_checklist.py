@@ -343,13 +343,13 @@ PROFILES = {
     "seo": {
         "template": "Onsite Checklist - TEMPLATE - 2026.xlsx",
         "output": "Onsite Checklist - {client} - {date}.xlsx",
-        "url": "https://raw.githubusercontent.com/firstpage-seo/onsite-checking-AI-workflows/main/.claude/skills/onsite-meta-images-extraction-multica/assets/templates/Onsite%20Checklist%20-%20TEMPLATE%20-%202026.xlsx",
+        "url": "https://raw.githubusercontent.com/firstpage-seo/onsite-checking-AI-workflows/main/.claude/skills/onsite-canonical-meta-images-extraction-multica/assets/templates/Onsite%20Checklist%20-%20TEMPLATE%20-%202026.xlsx",
         "sha256": "69a5a6b0fb78602cbbf98093379d4d4fe0906c31eecb5f33f567d9e668eb4cd6",
     },
     "seo_geo": {
         "template": "[Working Draft_Internal SEO_GEO] Onsite Checklist - [TEMPLATE] - 20260714.xlsx",
         "output": "SEO_GEO Onsite Checklist - {client} - {date}.xlsx",
-        "url": "https://raw.githubusercontent.com/firstpage-seo/onsite-checking-AI-workflows/main/.claude/skills/onsite-meta-images-extraction-multica/assets/templates/%5BWorking%20Draft_Internal%20SEO_GEO%5D%20Onsite%20Checklist%20-%20%5BTEMPLATE%5D%20-%2020260714.xlsx",
+        "url": "https://raw.githubusercontent.com/firstpage-seo/onsite-checking-AI-workflows/main/.claude/skills/onsite-canonical-meta-images-extraction-multica/assets/templates/%5BWorking%20Draft_Internal%20SEO_GEO%5D%20Onsite%20Checklist%20-%20%5BTEMPLATE%5D%20-%2020260714.xlsx",
         "sha256": "4efcf9f3a6ea08b423e192f727049cf07a86649bb30659df1c10905d5d68ce12",
     },
 }

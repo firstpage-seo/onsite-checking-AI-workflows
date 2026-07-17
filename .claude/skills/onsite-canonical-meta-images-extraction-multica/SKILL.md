@@ -1,5 +1,5 @@
 ---
-name: onsite-meta-images-extraction-multica
+name: onsite-canonical-meta-images-extraction-multica
 description: Builds or refreshes the canonical, meta tags, and images portion of either the FirstPage SEO or SEO/GEO Onsite Checklist. Supports Begin Onsite from a blank template and Review Onsite from either a previous completed workbook or a fresh blank template, using Screaming Frog saved crawls, MCP, local CLI, or existing exports. Covers items 13.1-13.2 and 17.1-20.2.
 ---
 
@@ -251,7 +251,7 @@ With no `--template`, Begin and blank-template Review download the canonical tem
 To use an approved alternative version, add either `--template "/path/to/template.xlsx"` or:
 
 ```bash
---template-url "https://github.com/firstpage-seo/onsite-checking-AI-workflows/blob/main/.claude/skills/onsite-meta-images-extraction-multica/assets/templates/Onsite%20Checklist%20-%20TEMPLATE%20-%202026.xlsx"
+--template-url "https://github.com/firstpage-seo/onsite-checking-AI-workflows/blob/main/.claude/skills/onsite-canonical-meta-images-extraction-multica/assets/templates/Onsite%20Checklist%20-%20TEMPLATE%20-%202026.xlsx"
 ```
 
 **Review SEO/GEO from a previous onsite and saved crawl:**

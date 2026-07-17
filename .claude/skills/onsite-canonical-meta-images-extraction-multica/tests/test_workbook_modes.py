@@ -70,7 +70,7 @@ class WorkbookModesTest(unittest.TestCase):
     def test_normalizes_approved_github_file_url(self):
         page = (
             "https://github.com/firstpage-seo/onsite-checking-AI-workflows/blob/main/"
-            ".claude/skills/onsite-meta-images-extraction-multica/assets/templates/"
+            ".claude/skills/onsite-canonical-meta-images-extraction-multica/assets/templates/"
             "Onsite%20Checklist%20-%20TEMPLATE%20-%202026.xlsx?raw=1"
         )
         self.assertEqual(onsite.normalize_template_url(page), onsite.PROFILES["seo"]["url"])

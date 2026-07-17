@@ -8,20 +8,20 @@ without depending on sibling skills.
 
 | Skill | Purpose |
 |---|---|
-| `onsite-meta-images-extraction-multica` | Builds or refreshes canonical items 13.1-13.2 and meta/image items 17.1-20.2 from Screaming Frog data. Supports SEO and SEO/GEO, Begin and Review, and previous-workbook or blank-template Review. |
+| `onsite-canonical-meta-images-extraction-multica` | Builds or refreshes canonical items 13.1-13.2 and meta/image items 17.1-20.2 from Screaming Frog data. Supports SEO and SEO/GEO, Begin and Review, and previous-workbook or blank-template Review. |
 
 ## Multica import
 
 Import each skill from its own directory URL, not from the repository root:
 
 ```text
-https://github.com/firstpage-seo/onsite-checking-AI-workflows/tree/main/.claude/skills/onsite-meta-images-extraction-multica
+https://github.com/firstpage-seo/onsite-checking-AI-workflows/tree/main/.claude/skills/onsite-canonical-meta-images-extraction-multica
 ```
 
 Copy the matching agent instructions from:
 
 ```text
-.claude/skills/onsite-meta-images-extraction-multica/references/multica-agent-instructions.md
+.claude/skills/onsite-canonical-meta-images-extraction-multica/references/multica-agent-instructions.md
 ```
 
 ## Repository layout
