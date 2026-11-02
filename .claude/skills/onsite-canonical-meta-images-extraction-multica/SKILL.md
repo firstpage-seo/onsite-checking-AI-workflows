@@ -1,6 +1,6 @@
 ---
 name: onsite-canonical-meta-images-extraction-multica
-description: Builds or refreshes the canonical, meta tags, and images portion of either the FirstPage SEO or SEO/GEO Onsite Checklist. Supports Begin Onsite from a blank template and Review Onsite from either a previous completed workbook or a fresh blank template, using Screaming Frog saved crawls, MCP, local CLI, or existing exports. Covers items 13.1-13.2 and 17.1-20.2.
+description: Builds or refreshes the Screaming-Frog-derived portions of either the FirstPage SEO or SEO/GEO Onsite Checklist from one crawl: canonical, meta tags and images (13.1-13.2, 17.1-20.2) plus HTTPS (9), Pagination (14), URL best practices (26/30), HTTP status codes and broken links (27/31 + 24.8/28.8) and Page speed (28/32, only when PageSpeed Insights data is in the crawl). Supports Begin Onsite from a blank template and Review Onsite from a previous completed workbook (which preserves the PreCheck/account block and re-audits everything else fresh). Uses Screaming Frog saved crawls, MCP, local CLI, or existing exports.
 ---
 
 # Canonical + Meta Tags + Images Extraction
@@ -10,9 +10,24 @@ Gets crawl data from Screaming Frog, applies FirstPage house thresholds, and wri
 tab. In Multica, Screaming Frog MCP is an optional way to obtain the crawl exports; it does not
 replace the validated Python extraction and workbook logic.
 
-**Scope: items 13.1-13.2 and 17.1-20.2 only.** Canonical items 13.3-13.7 and SEO/GEO item 20.3
-are deliberately not audited. Everything else is out of scope and is left unverified or
-preserved from the previous onsite.
+**Scope.** From a single crawl this skill auto-marks, per checklist family:
+
+- **13.1-13.2** canonical, **17.1-20.2** page titles / descriptions / H1 / images (unchanged core).
+- **9 Implement HTTPS Protocol** - 9.1 insecure/HTTP URLs, 9.2 mixed content.
+- **14 Pagination** - 14.4 page=1 exists; 14.3 rel=prev/next and 14.6 canonical self-ref when a
+  Pagination export is present. SEO/GEO has the 14.x items but no detail tab, so marks only.
+- **URL best practices** (SEO **26**, SEO/GEO **30**) - .2 parameters, .3 underscores,
+  .4 uppercase, .5 multiple slashes. Over-length URLs are listed as evidence under item .1.
+- **HTTP status codes / broken links** (SEO **27**, SEO/GEO **31**) - .2 5xx, .3 302s, plus
+  **broken internal links** (SEO 24.8, SEO/GEO 28.8), internal 4xx/5xx only.
+- **Page speed** (SEO **28**, SEO/GEO **32**) - .1/.3 from Screaming Frog's PageSpeed Insights
+  integration. **Overall performance 0-49 = fail.** Evaluated ONLY when PSI data is in the crawl
+  (SF > Config > API Access > PageSpeed Insights); otherwise left blank, never a false pass.
+
+**Left to the analyst (judgment - never auto-marked):** 9.3 www-vs-non-www; pagination 14.1/14.2/
+14.5; URL .1 hierarchy/keywords and .6 trailing slash; status .1 soft-404, .4 307-vs-302,
+.5 custom-404; page speed .2 GTmetrix, .4 CWV, .5 WP audit. Canonical 13.3-13.7 and SEO/GEO 20.3
+remain unaudited. A report that is absent leaves its item blank, never `✔`.
 
 ---
 
@@ -26,9 +41,9 @@ workbook until the user has answered these questions in the current task:
 3. **Base workbook:**
    - Begin: the skill downloads the matching canonical blank template from the approved GitHub
      repository. An attached local template or approved GitHub file URL may override it.
-   - Review: ask whether to start from the previous completed onsite or a blank template.
-   - Review from previous: the previous completed onsite workbook must be supplied.
-   - Review from blank: download the matching canonical template as for Begin.
+   - Review: the previous completed onsite workbook MUST be supplied. The skill preserves its
+     PreCheck/account block (sections 1-6, conversion tracking, backlink profile, CRM) and
+     re-audits every other section fresh. There is no Review-from-blank.
 4. **Current crawl source:** saved crawl, MCP URL+sitemap crawl, local website-only crawl, or
    approved existing exports.
 5. **Client name and output destination.**
@@ -48,20 +63,27 @@ the canonical template for the selected family from this skill's approved public
 repository. Clear template ticks on unverified items, populate items 13.1-13.2 and 17.1-20.2,
 set 13.3-13.7 to `N/A`, and leave SEO/GEO item 20.3 blank.
 
-**Review Onsite.** Ask for its starting point. When starting from the previous completed onsite,
-replace the factual rows in items 13 and 17.1-20.2 with current findings while preserving all
-unrelated sheets and checklist marks. Carry forward human-written `New Title`, `Revised Title`,
-`Instructions`, `Remarks`, and screenshot references for persistent issues. For canonical rows,
-persistence means the same Address, Issue, and canonical element values. Remove resolved rows,
-add new rows, and unhide any managed tab that now has issues. Update only 13.1, 13.2, and the
-17.1-20.2 marks; preserve human marks for 13.3-13.7. Never overwrite the previous workbook.
+**Review Onsite.** Always builds from the previous completed onsite (there is no Review-from-blank).
+It **preserves the PreCheck / account block verbatim** from that file - sections 1-6 plus the three
+sections matched by header text: conversion tracking, backlink profile, and CRM protocol (SEO 30/31/32,
+SEO/GEO 34/35/36). **Everything else (sections 7-29 and any GEO sections) is re-audited fresh, exactly
+like Begin:** every non-PreCheck checklist mark is blanked, then the managed items are re-marked from
+the current crawl. Because it is a fresh audit, prior human annotations on the technical items are NOT
+carried forward and there is no new/persistent/resolved comparison - the workbook shows the latest
+status only.
 
-When the user chooses Review from blank, download the selected family's canonical template,
-clear template ticks on unverified items, and build a fresh workbook. Do not claim historical
-new, persistent, or resolved comparisons because no previous onsite was supplied.
-
-Review output includes per-item counts for new, persistent, and resolved rows only when it starts
-from a previous onsite.
+**On the checklist tab, the previous audit's result is preserved for the record.** Before re-auditing,
+the checklist tab's current result column (**column D**) is copied into **column E**; if the previous
+workbook already carried two check columns, the older third audit in E is dropped, so only the two
+latest audits are kept. This run's marks are then written fresh into **column D**. The headers are
+relabelled `Check in <current month>` for column D and `Check in <previous month>` for column E - the
+previous month is taken from the prior file's D header, falling back to the date in its filename, and
+the current month from the output filename's date. If the previous workbook has only a single result
+column (E is the detail-links column), a fresh column E is inserted, the detail-links column shifts
+right, and the previous D is moved into E. **This two-column record applies to the checklist tab only -
+every detail tab still shows the latest status only.** The tab may be named `SEO Implementation
+Checklist` or `SEO Audit Checklist`; locate it by either name. **SEO/GEO follows the same D/E rule.**
+Never overwrite the previous workbook; write a new dated file.
 
 ---
 
@@ -207,6 +229,18 @@ H1:Missing
 H1:Duplicate
 H1:Multiple
 Images:All
+Security:HTTP URLs
+Security:Mixed Content
+Response Codes:Client Error (4xx)
+Response Codes:Server Error (5xx)
+Response Codes:Redirection (3xx)
+URL:Underscores
+URL:Uppercase
+URL:Parameters
+URL:Multiple Slashes
+URL:Over X Characters
+Pagination:Contains Pagination
+PageSpeed:All
 ```
 
 **Bulk exports:**
@@ -214,7 +248,13 @@ Images:All
 ```text
 Images:Images Missing Alt Attribute & Text Inlinks
 Images:All Image Inlinks
+Response Codes:Client Error (4xx) Inlinks
+Response Codes:Server Error (5xx) Inlinks
 ```
+
+`PageSpeed:All` is only meaningful when the crawl was run with Screaming Frog's PageSpeed Insights
+API integration enabled; without it, page-speed items (28/32) are left blank. The Response Codes
+`Inlinks` bulk exports drive broken-internal-link detection (internal 4xx/5xx only).
 
 The reports must be saved together as CSV files in a directory readable by the Python runtime.
 Preserve Screaming Frog's headers and native filtered exports. Do not substitute a generic page
@@ -314,8 +354,8 @@ Useful flags:
 - `--keep-template-ticks` — leave the template's default `✔` on unverified items (default is to blank them).
 - `--checklist-type seo|seo_geo` — validate and select the checklist family.
 - `--mode begin|review` — select Begin or Review Onsite.
-- `--review-base previous|blank` — select the Review starting point. Required for blank Review;
-  inferred as `previous` when `--previous-workbook` is supplied for compatibility.
+- `--review-base` — deprecated. Review always builds from `--previous-workbook`; passing
+  `--review-base blank` is rejected.
 - `--template <file>` — optional local template for Begin or blank Review; takes precedence over
   URL download.
 - `--template-url <url>` — optional blank-template override in the approved GitHub repository.
@@ -470,3 +510,28 @@ Give the per-item table (item, rows, mark), then flag:
   state that historical comparison is unavailable.
 - That only items 13.1-13.2 and 17.1-20.2 were verified; 13.3-13.7 and SEO/GEO item 20.3 remain
   unaudited by this skill.
+
+## Excel output language
+
+Write all generated Excel report narratives, analyses, findings, recommendations,
+report titles, worksheet names, table headers, chart labels and notes in English,
+regardless of the input or conversation language.
+
+Preserve original source evidence exactly, including Chinese keywords, page
+titles, descriptions, headings, quoted page content, URLs and paths. Chinese
+text in source-evidence fields is permitted. Do not translate, remove or rewrite
+evidence merely to make a workbook appear English-only. Use English for the
+generated explanations surrounding that evidence.
+
+Set report-generation language to English. If a reused configuration specifies
+Chinese, use an English run-specific setting without modifying the original
+input configuration. Prepare narrative fields in English before rendering.
+
+Before delivery, reopen every Excel workbook and inspect generated narrative
+and presentation fields for Chinese text; correct those fields and regenerate
+when needed. Inspect source-evidence fields separately and preserve their text.
+Do not apply a blanket Chinese-character removal or replacement to a workbook.
+Preserve audit logic, thresholds, result codes, evidence provenance and
+machine-readable field keys. This rule governs Excel deliverables and the
+narrative inputs used to build them; it does not require English chat replies
+or translation of internal documentation.

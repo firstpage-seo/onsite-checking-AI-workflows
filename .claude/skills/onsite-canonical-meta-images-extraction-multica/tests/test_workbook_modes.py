@@ -226,11 +226,12 @@ class WorkbookModesTest(unittest.TestCase):
             "https://example.com/two\nhttps://example.com/three",
         )
         checklist = wb[onsite.CHECK_TAB]
+        # 13.1 (missing) is auto-marked; 13.2 and 13.3-13.7 are human-judgment -> left blank.
         self.assertEqual(checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "✖")
-        self.assertEqual(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "✖")
+        self.assertIsNone(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value)
         for item in onsite.CANONICAL_MANUAL_ITEMS:
-            self.assertEqual(
-                checklist.cell(checklist_row(checklist, item), onsite.CHECK_COL).value, "N/A"
+            self.assertIsNone(
+                checklist.cell(checklist_row(checklist, item), onsite.CHECK_COL).value
             )
 
     def test_canonical_review_preserves_instructions_screenshots_and_manual_marks(self):
@@ -276,14 +277,14 @@ class WorkbookModesTest(unittest.TestCase):
         self.assertEqual(checklist.cell(checklist_row(checklist, "13.3"), onsite.CHECK_COL).value, "✔")
         self.assertEqual(changes["13.2"], {"new": 1, "persistent": 1, "resolved": 1})
 
-    def test_known_nonmissing_canonical_issue_fails_13_2_with_incomplete_evidence(self):
+    def test_canonicalised_row_stored_but_13_2_left_for_human(self):
         buckets = empty_buckets()
         buckets["13"]["Canonicalised"] = [
             {"Address": "https://example.com/old", "Issue": "Canonicalised",
              "Canonical Link Element": "https://example.com/new",
              "Additional Canonical Link Elements": None},
         ]
-        output = self.path("canonical-incomplete.xlsx")
+        output = self.path("canonical-human.xlsx")
         onsite.build(
             self.seo, output, buckets,
             {"canonicals_available": False, "images_crawled": True,
@@ -292,49 +293,47 @@ class WorkbookModesTest(unittest.TestCase):
         )
         wb = openpyxl.load_workbook(output)
         checklist = wb[onsite.CHECK_TAB]
+        # 13.1 unknown (incomplete evidence); 13.2 left BLANK for a human even though
+        # a canonicalised URL exists - the skill can't judge if it's correct.
         self.assertEqual(
             checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "?"
         )
-        self.assertEqual(
-            checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "✖"
+        self.assertIsNone(
+            checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value
         )
+        # ...but the canonicalised URL is still stored in the detail sheet as evidence.
+        canon = wb[onsite.CANONICAL_TAB]
+        addresses = [canon.cell(r, 1).value for r in range(onsite.DATA_ROW, canon.max_row + 1)]
+        self.assertIn("https://example.com/old", addresses)
 
-    def test_review_from_blank_resolves_template_without_history(self):
-        exports = self.path("exports")
-        os.makedirs(exports)
-        with open(os.path.join(exports, "page_titles_all.csv"), "w", encoding="utf-8", newline="") as fh:
-            writer = csv.DictWriter(
-                fh, fieldnames=["Address", "Indexability", "Title 1 Pixel Width"],
-            )
-            writer.writeheader()
-            writer.writerow({
-                "Address": "https://example.com/",
-                "Indexability": "Indexable",
-                "Title 1 Pixel Width": "100",
-            })
-
+    def test_review_from_blank_base_is_rejected(self):
+        # Review from a blank template was removed: Review now always builds
+        # from the previous completed onsite so it can preserve the PreCheck block.
         argv = [
             SCRIPT,
-            "--exports-dir", exports,
-            "--client", "Fresh Review",
+            "--exports-dir", self.path("unused-exports"),
+            "--client", "No Blank Review",
             "--checklist-type", "seo",
             "--mode", "review",
             "--review-base", "blank",
-            "--date", "20260717",
-            "--out-dir", self.tmp.name,
         ]
-        output = io.StringIO()
-        with mock.patch.object(onsite, "resolve_blank_template", return_value=self.seo) as resolver:
-            with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(output):
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
                 onsite.main()
+        self.assertEqual(raised.exception.code, 2)
 
-        resolver.assert_called_once()
-        self.assertIn("historical new/persistent/resolved counts are not available", output.getvalue())
-        workbook = self.path("Onsite Checklist - Fresh Review - 20260717.xlsx")
-        self.assertEqual(onsite.detect_profile(workbook), "seo")
-        wb = openpyxl.load_workbook(workbook)
-        checklist = wb[onsite.CHECK_TAB]
-        self.assertIsNone(checklist.cell(checklist_row(checklist, "10.1"), onsite.CHECK_COL).value)
+    def test_review_requires_previous_workbook(self):
+        argv = [
+            SCRIPT,
+            "--exports-dir", self.path("unused-exports"),
+            "--client", "No Previous",
+            "--checklist-type", "seo",
+            "--mode", "review",
+        ]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                onsite.main()
+        self.assertEqual(raised.exception.code, 2)
 
     def test_review_from_blank_rejects_previous_workbook(self):
         argv = [
@@ -448,9 +447,219 @@ class WorkbookModesTest(unittest.TestCase):
         wb = openpyxl.load_workbook(output)
         checklist = wb[onsite.CHECK_TAB]
         self.assertEqual(checklist.cell(checklist_row(checklist, "13.1"), onsite.CHECK_COL).value, "?")
-        self.assertEqual(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value, "?")
+        self.assertIsNone(checklist.cell(checklist_row(checklist, "13.2"), onsite.CHECK_COL).value)
         self.assertEqual(checklist.cell(checklist_row(checklist, "20.1"), onsite.CHECK_COL).value, "?")
         self.assertEqual(checklist.cell(checklist_row(checklist, "20.2"), onsite.CHECK_COL).value, "?")
+
+    def test_human_review_list_covers_canonical_and_new_items(self):
+        meta = dict(self.meta)
+        onsite.build(self.seo, self.path("hr.xlsx"), empty_buckets(), meta,
+                     mode="begin", family="seo", exports_dir=self.make_new_exports())
+        items = {it for it, _ in meta.get("needs_review", [])}
+        for expected in ("13.2", "13.3", "13.7", "14.1", "25.1", "25.2", "25.3", "25.4", "26.1", "27.1", "28.2"):
+            self.assertIn(expected, items)
+        # 25.3 (pages crawled/day) must be flagged as a number field
+        why = dict(meta["needs_review"])["25.3"]
+        self.assertIn("NUMBER", why)
+        # 9.3 is auto-checked, so it must NOT be in the human-review list
+        self.assertNotIn("9.3", items)
+
+    def test_human_review_list_renumbers_for_seo_geo(self):
+        meta = dict(self.meta)
+        onsite.build(self.geo, self.path("hr_geo.xlsx"), empty_buckets(), meta,
+                     mode="begin", family="seo_geo", exports_dir=self.make_new_exports())
+        items = {it for it, _ in meta.get("needs_review", [])}
+        for expected in ("13.2", "29.1", "30.1", "31.1", "32.2"):  # crawling/URL/status/speed renumbered
+            self.assertIn(expected, items)
+
+    # ---- new items (HTTPS/Pagination/URL/status codes/page speed) ---------
+
+    def make_new_exports(self):
+        d = self.path("new_exports")
+        os.makedirs(d, exist_ok=True)
+        self.write_csv(d, "page_titles_all.csv", ["Address", "Indexability", "Title 1 Pixel Width"], [
+            {"Address": "https://example.com/", "Indexability": "Indexable", "Title 1 Pixel Width": "100"},
+            {"Address": "https://example.com/blog?page=1", "Indexability": "Indexable", "Title 1 Pixel Width": "100"},
+            {"Address": "https://www.example.com/", "Indexability": "Indexable", "Title 1 Pixel Width": "100"},  # www + non-www -> 9.3 fail
+        ])
+        self.write_csv(d, "security_http_urls.csv", ["Address"],
+                       [{"Address": "http://example.com/insecure"}])          # 9.1 -> fail
+        self.write_csv(d, "security_mixed_content.csv", ["Source", "Destination"], [])  # 9.2 -> pass
+        self.write_csv(d, "url_parameters.csv", ["Address"],
+                       [{"Address": "https://example.com/p?a=1&b=2"}])          # .2 -> fail
+        self.write_csv(d, "url_underscores.csv", ["Address"], [])              # .3 -> pass
+        self.write_csv(d, "url_uppercase.csv", ["Address"], [])                # .4 -> pass
+        self.write_csv(d, "url_multiple_slashes.csv", ["Address"], [])         # .5 -> pass
+        self.write_csv(d, "response_codes_server_error_(5xx).csv", ["Address"],
+                       [{"Address": "https://example.com/boom"}])              # .2 5xx -> fail
+        self.write_csv(d, "response_codes_redirection_(3xx).csv", ["Address", "Status Code", "Redirect URL"],
+                       [{"Address": "https://example.com/old", "Status Code": "302",
+                         "Redirect URL": "https://example.com/new"}])          # .3 302 -> fail
+        self.write_csv(d, "response_codes_client_error_(4xx).csv", ["Address"],
+                       [{"Address": "https://example.com/gone"}])
+        self.write_csv(d, "response_codes_client_error_(4xx)_inlinks.csv", ["Source", "Destination"],
+                       [{"Source": "https://example.com/", "Destination": "https://example.com/gone"}])  # broken -> fail
+        self.write_csv(d, "pagination_contains_pagination.csv", ["Address"],
+                       [{"Address": "https://example.com/blog?page=2"}])       # 14.3 -> pass
+        self.write_csv(d, "pagespeed_all.csv", ["Address", "Performance Score"],
+                       [{"Address": "https://example.com/", "Performance Score": "30"}])  # 28.1 -> fail
+        return d
+
+    def test_new_items_begin_marks_seo(self):
+        output = self.path("new_seo.xlsx")
+        onsite.build(self.seo, output, empty_buckets(), dict(self.meta),
+                     mode="begin", family="seo", exports_dir=self.make_new_exports())
+        wb = openpyxl.load_workbook(output)
+        ws = wb[onsite.CHECK_TAB]
+        m = lambda item: ws.cell(checklist_row(ws, item), onsite.CHECK_COL).value
+        self.assertEqual(m("9.1"), "✖")   # internal HTTP URL
+        self.assertEqual(m("9.2"), "✔")   # no mixed content
+        self.assertEqual(m("9.3"), "✖")   # both www and non-www present
+        # HTTPS detail sheet: http-vs-https URL sits in Source with no Destination
+        https = wb["9. Implement HTTPS Protocol"]
+        http_row = next(r for r in range(onsite.DATA_ROW, https.max_row + 1)
+                        if https.cell(r, 4).value == "HTTP (insecure) URL")
+        self.assertEqual(https.cell(http_row, 1).value, "http://example.com/insecure")  # Source
+        self.assertIn(https.cell(http_row, 2).value, (None, ""))                          # no Destination
+        self.assertIn(https.cell(http_row, 3).value, (None, ""))                          # no Anchor Text
+        self.assertEqual(m("14.4"), "✖")  # page=1 exists
+        self.assertEqual(m("14.3"), "✔")  # pagination markup present
+        self.assertEqual(m("26.2"), "✖")  # parameters
+        self.assertEqual(m("26.3"), "✔")  # underscores clean
+        self.assertEqual(m("27.2"), "✖")  # 5xx
+        self.assertEqual(m("27.3"), "✖")  # 302s
+        self.assertEqual(m("24.8"), "✖")  # broken internal links
+        self.assertEqual(m("28.1"), "✖")  # PSI mobile < 50
+
+    def _write_file(self, name, text):
+        p = self.path(name)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return p
+
+    def test_robots_and_sitemap_auto_checks(self):
+        robots = self._write_file("robots.txt",
+            "User-agent: *\nDisallow: /wp-admin/\nSitemap: https://www.example.com/sitemap.xml\n")
+        sitemap = self._write_file("sitemap.xml",
+            '<?xml version="1.0"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            '  <url><loc>https://www.example.com/a</loc><lastmod>2026-01-01</lastmod></url>\n'
+            '  <url><loc>https://www.example.com/shop?page=2</loc><lastmod>2026-01-01</lastmod></url>\n'
+            '</urlset>\n')
+        output = self.path("robots_sitemap.xlsx")
+        onsite.build(self.seo, output, empty_buckets(), dict(self.meta),
+                     mode="begin", family="seo", exports_dir=self.make_new_exports(),
+                     robots_url=robots, sitemap_url=sitemap)
+        wb = openpyxl.load_workbook(output)
+        ws = wb[onsite.CHECK_TAB]
+        m = lambda item: ws.cell(checklist_row(ws, item), onsite.CHECK_COL).value
+        self.assertEqual(m("10.1"), "✔")   # robots.txt exists
+        self.assertEqual(m("10.4"), "✔")   # css/js not blocked
+        self.assertEqual(m("10.6"), "✔")   # lowercase robots.txt
+        self.assertEqual(m("10.7"), "✔")   # sitemap link present
+        self.assertEqual(m("11.1"), "✔")   # sitemap exists
+        self.assertEqual(m("11.3"), "✔")   # https + single host
+        self.assertEqual(m("11.4"), "✔")   # lastmod present
+        self.assertEqual(m("11.6"), "✖")   # a paginated URL is in the sitemap
+        # robots content and the paginated finding are written to the detail sheets
+        self.assertTrue(any("wp-admin" in str(wb["10. Robots.txt"].cell(r, 1).value)
+                            for r in range(4, wb["10. Robots.txt"].max_row + 1)))
+        self.assertTrue(any("page=2" in str(wb["11. Sitemap"].cell(r, 2).value or "")
+                            for r in range(4, wb["11. Sitemap"].max_row + 1)))
+
+    def test_robots_sitemap_absent_falls_back_to_human_review(self):
+        meta = dict(self.meta)
+        onsite.build(self.seo, self.path("no_rs.xlsx"), empty_buckets(), meta,
+                     mode="begin", family="seo", exports_dir=self.make_new_exports())
+        items = {it for it, _ in meta.get("needs_review", [])}
+        for expected in ("10.1", "10.7", "11.1", "11.6"):  # not readable -> human review
+            self.assertIn(expected, items)
+
+    def test_www_clean_redirect_passes_9_3(self):
+        d = self.path("www_redirect_exports")
+        os.makedirs(d)
+        self.write_csv(d, "page_titles_all.csv", ["Address", "Indexability", "Title 1 Pixel Width"],
+                       [{"Address": "https://example.com/", "Indexability": "Indexable", "Title 1 Pixel Width": "100"}])
+        # the www variant exists only as a 301 redirect -> clean canonicalisation -> pass
+        self.write_csv(d, "response_codes_redirection_(3xx).csv", ["Address", "Status Code", "Redirect URL"],
+                       [{"Address": "https://www.example.com/", "Status Code": "301",
+                         "Redirect URL": "https://example.com/"}])
+        output = self.path("www_pass.xlsx")
+        onsite.build(self.seo, output, empty_buckets(), dict(self.meta),
+                     mode="begin", family="seo", exports_dir=d)
+        ws = openpyxl.load_workbook(output)[onsite.CHECK_TAB]
+        self.assertEqual(ws.cell(checklist_row(ws, "9.3"), onsite.CHECK_COL).value, "✔")
+
+    def test_new_items_renumber_for_seo_geo(self):
+        output = self.path("new_geo.xlsx")
+        onsite.build(self.geo, output, empty_buckets(), dict(self.meta),
+                     mode="begin", family="seo_geo", exports_dir=self.make_new_exports())
+        ws = openpyxl.load_workbook(output)[onsite.CHECK_TAB]
+        m = lambda item: ws.cell(checklist_row(ws, item), onsite.CHECK_COL).value
+        self.assertEqual(m("30.2"), "✖")  # URL params (renumbered from 26.2)
+        self.assertEqual(m("31.2"), "✖")  # 5xx (renumbered from 27.2)
+        self.assertEqual(m("28.8"), "✖")  # broken internal links (from 24.8)
+        self.assertEqual(m("32.1"), "✖")  # page speed (from 28.1)
+
+    def test_page_speed_left_blank_without_psi_data(self):
+        d = self.make_new_exports()
+        os.remove(os.path.join(d, "pagespeed_all.csv"))
+        output = self.path("no_psi.xlsx")
+        onsite.build(self.seo, output, empty_buckets(), dict(self.meta),
+                     mode="begin", family="seo", exports_dir=d)
+        ws = openpyxl.load_workbook(output)[onsite.CHECK_TAB]
+        self.assertIsNone(ws.cell(checklist_row(ws, "28.1"), onsite.CHECK_COL).value)
+
+    def test_review_preserves_prechecks_and_reaudits_technical(self):
+        previous = self.path("previous.xlsx")
+        wb = openpyxl.load_workbook(self.seo)
+        cl = wb[onsite.CHECK_TAB]
+        cl.cell(checklist_row(cl, "1.4"), onsite.CHECK_COL).value = "✔"   # PreCheck §1 -> keep
+        cl.cell(checklist_row(cl, "10.1"), onsite.CHECK_COL).value = "✖"  # §10 technical -> re-audit
+        cl.cell(checklist_row(cl, "31.1"), onsite.CHECK_COL).value = "✔"  # §31 backlink -> keep
+        wb.save(previous)
+
+        output = self.path("reviewed.xlsx")
+        onsite.build(previous, output, empty_buckets(), dict(self.meta),
+                     mode="begin", blank_unverified=False, keep_prechecks=True,
+                     family="seo", exports_dir=self.make_new_exports())
+        ws = openpyxl.load_workbook(output)[onsite.CHECK_TAB]
+        m = lambda item: ws.cell(checklist_row(ws, item), onsite.CHECK_COL).value
+        self.assertEqual(m("1.4"), "✔")    # PreCheck preserved
+        self.assertEqual(m("31.1"), "✔")   # backlink section preserved
+        self.assertIsNone(m("10.1"))       # technical section blanked (re-audit fresh)
+        self.assertEqual(m("9.1"), "✖")    # managed new item re-audited from crawl
+
+    def test_review_records_previous_result_in_column_e(self):
+        # Previous single-column onsite (production layout: D = check, E = detail links).
+        previous = self.path("Onsite Checklist - acme - 2026.02.10.xlsx")
+        wb = openpyxl.load_workbook(self.seo)
+        cl = wb[onsite.CHECK_TAB]
+        cl.cell(checklist_row(cl, "1.4"), onsite.CHECK_COL).value = "✔"    # PreCheck -> preserved in D
+        cl.cell(checklist_row(cl, "10.1"), onsite.CHECK_COL).value = "✖"   # technical -> re-audited in D
+        link_before = cl.cell(checklist_row(cl, "13.1"), onsite.RECORD_COL).value  # detail-link text in E
+        wb.save(previous)
+
+        output = self.path("Onsite Checklist - acme - 20260826.xlsx")
+        onsite.build(previous, output, empty_buckets(), dict(self.meta),
+                     mode="begin", blank_unverified=False, keep_prechecks=True,
+                     family="seo", exports_dir=self.make_new_exports(),
+                     record_previous=True)
+        ws = openpyxl.load_workbook(output)[onsite.CHECK_TAB]
+        hr = onsite._checklist_header_row(ws)
+        # A fresh column E was inserted; detail links shifted to F.
+        self.assertEqual(ws.cell(hr, onsite.CHECK_COL).value, "Check in Aug")   # D = current run month
+        self.assertEqual(ws.cell(hr, onsite.RECORD_COL).value, "Check in Feb")  # E = previous file month
+        self.assertEqual(ws.cell(hr, onsite.RECORD_COL + 1).value,
+                         "Detailed Tab Links / Specific Instructions")
+        self.assertEqual(ws.cell(checklist_row(ws, "13.1"), onsite.RECORD_COL + 1).value, link_before)
+        # Column E keeps the previous audit verbatim as the record.
+        self.assertEqual(ws.cell(checklist_row(ws, "1.4"), onsite.RECORD_COL).value, "✔")
+        self.assertEqual(ws.cell(checklist_row(ws, "10.1"), onsite.RECORD_COL).value, "✖")
+        # Column D shows the latest audit: PreCheck preserved, technical re-audited fresh.
+        m = lambda item: ws.cell(checklist_row(ws, item), onsite.CHECK_COL).value
+        self.assertEqual(m("1.4"), "✔")   # PreCheck preserved in current column
+        self.assertIsNone(m("10.1"))            # technical blanked then re-audited
+        self.assertEqual(m("9.1"), "✖")   # managed item re-audited from the new crawl
 
 
 if __name__ == "__main__":
